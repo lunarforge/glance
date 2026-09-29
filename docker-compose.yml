@@ -1,0 +1,42 @@
+# Glance runtime.
+#
+#   docker compose up -d            → pull ghcr.io/${GLANCE_OWNER}/glance:${GLANCE_TAG}
+#   docker compose up -d --build    → build from this checkout instead
+#
+# First run: mkdir -p config && cp docs/glance.yml config/glance.yml
+#
+# Variables (shell or .env):
+#   GLANCE_OWNER       GHCR namespace that build-push.yml publishes to (default: lunarforge)
+#   GLANCE_TAG         image tag, e.g. latest, main, v0.8.0, sha-abc1234 (default: latest)
+#   GLANCE_PORT        host port (default: 8080)
+#   GLANCE_CONFIG_DIR  host dir mounted at /app/config (default: ./config)
+#   GLANCE_ASSETS_DIR  host dir mounted at /app/assets (default: ./assets)
+#   TZ                 container timezone, used by calendar/clock widgets (default: UTC)
+
+name: glance
+
+services:
+  glance:
+    image: ghcr.io/${GLANCE_OWNER:-lunarforge}/glance:${GLANCE_TAG:-latest}
+    build:
+      context: .
+      args:
+        VERSION: ${GLANCE_TAG:-dev}
+    restart: unless-stopped
+    ports:
+      - "${GLANCE_PORT:-8080}:8080"
+    environment:
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ${GLANCE_CONFIG_DIR:-./config}:/app/config:ro
+      - ${GLANCE_ASSETS_DIR:-./assets}:/app/assets:ro
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/api/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

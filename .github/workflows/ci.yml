@@ -1,0 +1,75 @@
+# Pre-merge gate: vet, build, and test the Go module.
+#
+# Complements build-push.yml (which builds/ships images to GHCR) and
+# release.yaml (GoReleaser on v* tags). Runs on every push to main and every
+# PR so a broken build or failing test can't be tagged and shipped.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".gitignore"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".gitignore"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: vet · build · test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test -count=1 ./...
+
+  compose:
+    name: compose · smoke
+    runs-on: ubuntu-latest
+    needs: go
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start
+        run: |
+          set -euo pipefail
+          mkdir -p config assets
+          cp docs/glance.yml config/glance.yml
+          docker compose up -d --build --wait --wait-timeout 60
+
+      - name: Healthz
+        run: curl -fsS http://127.0.0.1:8080/api/healthz
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
